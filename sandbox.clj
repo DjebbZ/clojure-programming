@@ -127,3 +127,69 @@
   (println k)
   (println v))
 
+; primitive logging system
+(defn print-logger
+  [writer]
+  #(binding [*out* writer]
+     (println %)))
+
+(def *out*-logger (print-logger *out*))
+(*out*-logger "hello")
+
+(def writer (java.io.StringWriter.))
+(def retained-logger (print-logger writer))
+(retained-logger "hello")
+(str writer)
+
+(require 'clojure.java.io)
+(defn file-logger
+  [file]
+  #(with-open [f (clojure.java.io/writer file :append true)]
+     ((print-logger f) %)))
+
+; file located here :
+; /Applications/LightTable/LightTable.app/Contents/Resources/app.nw/plugins/clojure/runner/resources/messages.log
+(def log->file (file-logger "messages.log"))
+(log->file "hello")
+
+(use 'clojure.java.javadoc)
+(javadoc java.io.BufferedWriter)
+
+(System/getProperty "user.dir")
+(.getAbsolutePath (java.io.File. "."))
+
+(defn multi-logger
+  [& logger-fns]
+  #(doseq [f logger-fns]
+     (f %)))
+
+(def log (multi-logger *out*-logger log->file))
+(log "hello again")
+
+(javadoc java.util.Formatter)
+(defn timestamped-logger
+  [logger]
+  #(logger (format "[%1$tY-%1$tm-%1$te %1$tH:%1$tM:%1$tS] %2$s" (java.util.Date.) %)))
+
+(def log-timestamped (timestamped-logger log))
+(log-timestamped "goodbye, now")
+
+; side-effects: I/O
+(require '[clojure.xml :as xml])
+
+; doesn't work anymore since Twitter 1.1 API requires authentication
+(defn twitter-followers
+  [username]
+  (->> (str "https://api.twitter.com/1.1/users/show.xml?screen_name" username)
+       xml/parse
+       :content
+       (filter (comp #{:followers_count} :tag))
+       first
+       :content
+       first
+       Integer/parseInt))
+(twitter-followers "Dj3bbZ") ; HTTP 401
+
+; memoize only referentially transparent functions
+(repeatedly 10 (partial rand-int 10))
+(repeatedly 10 (partial (memoize rand-int) 10))
