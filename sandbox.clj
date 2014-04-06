@@ -1,4 +1,4 @@
-; Evalute this forms
+; Evalute these forms
 
 (quote x)
 (symbol? (quote x))
@@ -78,3 +78,52 @@
   (dotimes [n 20000000]
     (apply + [0 1 2 3 4]))
   (- (current-time) t1))
+
+
+; comp
+(require '[clojure.string :as str])
+
+(def camel->keyword (comp keyword
+                          str/join
+                          (partial interpose \-)
+                          (partial map str/lower-case)
+                          #(str/split % #"(?<=[a-z])(?=[A-Z])")))
+
+(camel->keyword "JustDoIt")
+
+(#(str/split % #"(?<=[a-z])(?=[A-Z])") "JustDoIt")
+
+; non-greedy regexps : http://qntm.org/files/re/re.html
+(re-find #"'.*'" "'a'='a'")
+(re-find #"'.*?'" "'a'='a'")
+
+; comp <=> threading macro ?
+(defn camel->>keyword
+  [s]
+  (->> (str/split s #"(?<=[a-z])(?=[A-Z])")
+       (map str/lower-case)
+       (interpose \-)
+       str/join
+       keyword))
+
+(camel->>keyword "JustDoIt")
+
+(def keyz #{"KeyOne" "KeyTwo" "KeyThree"})
+(def valz [1 2 3])
+(zipmap (map camel->keyword keyz)
+        valz)
+
+(map camel->keyword keyz)
+
+(def kvlist '(("KeyOne" 1) ("KeyTwo" 2) ("KeyThree" 3)))
+(map #(hash-map (first %) (second %)) kvlist)
+
+(reduce (fn [m [k v]]
+          (assoc m k v))
+        {}
+        kvlist)
+
+(let [[k v] '("key" "val")]
+  (println k)
+  (println v))
+
