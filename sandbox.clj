@@ -1,3 +1,7 @@
+(ns sandbox.clj
+  (:import (java.util HashMap UUID Date Formatter ArrayList)
+           (java.io StringWriter BufferedWriter File)))
+
 ; Evalute these forms
 
 (quote x)
@@ -49,9 +53,9 @@
 (defn make-user
   [& [id1 id2]]
   {:id1 (or id1
-                (str (java.util.UUID/randomUUID)))
+            (str (UUID/randomUUID)))
    :id2 (or (when (not-any? nil? [id1 id2]) (str id1 "-" id2))
-            (str (java.util.UUID/randomUUID)))})
+            (str (UUID/randomUUID)))})
 
 (make-user)
 (make-user 1 2 3)
@@ -61,11 +65,11 @@
 (reduce + 10 [20 30 40])
 (apply + [10 20 30 40])
 
-(.getTime (java.util.Date.))
+(.getTime (Date.))
 
 ; reduce vs. apply : who's faster ? (A: reduce, ~10% faster)
 (defn current-time []
-  (.getTime (java.util.Date.)))
+  (.getTime (Date.)))
 
 (do
   (def t1 (current-time))
@@ -123,10 +127,14 @@
 (def kvlist '(("KeyOne" 1) ("KeyTwo" 2) ("KeyThree" 3)))
 (map #(hash-map (first %) (second %)) kvlist)
 
+kvlist
+
 (reduce (fn [m [k v]]
           (assoc m k v))
         {}
         kvlist)
+
+(into {} (map vec kvlist))
 
 (let [[k v] '("key" "val")]
   (println k)
@@ -136,12 +144,12 @@
 (defn print-logger
   [writer]
   #(binding [*out* writer]
-     (println %)))
+    (println %)))
 
 (def *out*-logger (print-logger *out*))
 (*out*-logger "hello")
 
-(def writer (java.io.StringWriter.))
+(def writer (StringWriter.))
 (def retained-logger (print-logger writer))
 (retained-logger "hello")
 (str writer)
@@ -150,7 +158,7 @@
 (defn file-logger
   [file]
   #(with-open [f (clojure.java.io/writer file :append true)]
-     ((print-logger f) %)))
+    ((print-logger f) %)))
 
 ; file located here :
 ; /Applications/LightTable/LightTable.app/Contents/Resources/app.nw/plugins/clojure/runner/resources/messages.log
@@ -158,23 +166,23 @@
 (log->file "hello")
 
 (use 'clojure.java.javadoc)
-(javadoc java.io.BufferedWriter)
+(javadoc BufferedWriter)
 
 (System/getProperty "user.dir")
-(.getAbsolutePath (java.io.File. "."))
+(.getAbsolutePath (File. "."))
 
 (defn multi-logger
   [& logger-fns]
   #(doseq [f logger-fns]
-     (f %)))
+    (f %)))
 
 (def log (multi-logger *out*-logger log->file))
 (log "hello again")
 
-(javadoc java.util.Formatter)
+(javadoc Formatter)
 (defn timestamped-logger
   [logger]
-  #(logger (format "[%1$tY-%1$tm-%1$te %1$tH:%1$tM:%1$tS] %2$s" (java.util.Date.) %)))
+  #(logger (format "[%1$tY-%1$tm-%1$te %1$tH:%1$tM:%1$tS] %2$s" (Date.) %)))
 
 (def log-timestamped (timestamped-logger log))
 (log-timestamped "goodbye, now")
@@ -241,8 +249,8 @@
   [sequential]
   (into (empty sequential)
         (interleave
-         (take-nth 2 (drop 1 sequential))
-         (take-nth 2 sequential))))
+          (take-nth 2 (drop 1 sequential))
+          (take-nth 2 sequential))))
 
 (swap-pairs [1 2 3 4 5 6])
 (swap-pairs {:a 1 :b 2 :c 3})
@@ -267,8 +275,8 @@
 ; sequences
 (seq "Clojure")
 (seq {:a 1 :b 5})
-(seq (java.util.ArrayList. (range 10)))
-(java.util.ArrayList. (range 10))
+(seq (ArrayList. (range 10)))
+(ArrayList. (range 10))
 (seq (into-array ["Clojure" "Programming"]))
 (seq [])
 (seq nil)
@@ -308,3 +316,118 @@
   (time (count s))) ; must realize all values in s before counting
 (let [s (apply list (range 1e6))]
   (time (count s))) ; lists track their own length, so it's just a property access
+
+; creating seqs
+(cons 0 [1 2 3])
+(cons 0 (cons 1 (cons 2 [3 4])))
+(list* 0 1 2 [3 4])
+(class (cons 0 [1]))
+
+; lazy seqs
+(defn random-ints
+  [limit]
+  (lazy-seq
+    (println "Realizing random number")
+    (cons (rand-int limit)
+          (random-ints limit))))
+
+(take 10 (random-ints 50))
+(random-ints 3) ; hopefully limited by the REPL, infinite recursion otherwise
+
+(def rands (take 10 (random-ints 50)))
+(first rands)
+(nth rands 3)
+(count rands)
+
+(repeatedly 10 (partial rand-int 50))
+(repeatedly 10 (fn []
+                 (println "random number")
+                 (rand-int 50)))
+
+(def nxt (next (random-ints 50))) ; 2 realizations
+(def rst (rest (random-ints 50))) ; only 1 realization
+
+(split-with even? (range 10))
+(split-with neg? (range -5 5))
+
+(let [[t d] (split-with #(< % 12) (range 1e8))]
+  [(count d) (count t)])
+
+(let [[t d] (split-with #(< % 12) (range 1e8))]
+  [(count t) (count d)])
+
+; the associative abstraction
+(def mapp {:a 1, :b 2, :c 3})
+(get mapp :b)
+(mapp :b)
+(:b mapp)
+(get mapp :d)
+(mapp :d)
+(:d mapp)
+(get mapp :d "not-found")
+
+(assoc mapp :d 4)
+(dissoc mapp :c)
+
+(assoc mapp
+  :d 4
+  :e 5
+  :f 6)
+(dissoc mapp :a :b)
+
+; vectors are assocations of values with their indices
+(def vect [1 2 3])
+(get vect 0)
+(get vect 10)
+(get vect 10 "not-found")
+(vect 0)
+(0 vect) ; nope
+(assoc vect
+  1 4
+  0 -12
+  3 \c) ; assoc existing indices replace the values
+
+; assoc on a indice not 'present' throws an IndexOutOfBoundsException
+(assoc vect
+  1 4
+  0 -12
+  4 \c) ; 4 is not an valid indice of vect
+(conj vect \c) ; conj is better for vectors, no need to know an indice
+
+; sets' associative abstraction associates values with themselves
+(get #{1 2 3} 2)
+(get #{1 2 3} 4)
+(get #{1 2 3} 4 "not-found")
+(when (get #{1 2 3} 1)
+  (println "it contains 1 !"))
+(assoc #{1 2 3} 4 4) ; assoc doesn't work on sets
+
+(contains? [1 2 3] 0)
+(contains? [] 0)
+(contains? {:a 1 :b 2} :b)
+(contains? {:a 1 :b 2} :c)
+(contains? {:a 1 :b 2} 42)
+(contains? #{1 2 3} 1)
+(contains? #{1 2 3} 0)
+(contains? [1 2 3] 3)
+(contains? [1 2 3] 2)
+
+(get "Clojure" 3)
+(contains? (HashMap.) "not-there")
+(get (into-array [1 2 3]) 0)
+
+; beware of nil values
+(get {:a nil} :c)
+(get {:a nil} :a) ; nil is a valid value
+(find {:a nil} :a)
+(find {:a nil} :c)
+
+(if-let [e (find {:a 1 :b 2} :a)]
+  (format "found %s => %s" (key e) (val e))
+  "not-found")
+
+(if-let [e (find {:a 1 :b 2} :c)]
+  (format "found %s => %s" (key e) (val e))
+  "not-found")
+
+
