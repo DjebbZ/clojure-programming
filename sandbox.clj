@@ -63,7 +63,7 @@
 
 (.getTime (java.util.Date.))
 
-; reduce vs. apply : who's faster ? (A: reduce, lt 10% faster)
+; reduce vs. apply : who's faster ? (A: reduce, ~10% faster)
 (defn current-time []
   (.getTime (java.util.Date.)))
 
@@ -79,6 +79,11 @@
     (apply + [0 1 2 3 4]))
   (- (current-time) t1))
 
+(time (dotimes [n 20000000]
+        (reduce + [0 1 2 3 4])))
+
+(time (dotimes [n 20000000]
+        (apply + [0 1 2 3 4])))
 
 ; comp
 (require '[clojure.string :as str])
@@ -180,7 +185,7 @@
 ; doesn't work anymore since Twitter 1.1 API requires authentication
 (defn twitter-followers
   [username]
-  (->> (str "https://api.twitter.com/1.1/users/show.xml?screen_name" username)
+  (->> (str "https://api.twitter.com/1.1/users/show.xml?screen_name=" username)
        xml/parse
        :content
        (filter (comp #{:followers_count} :tag))
@@ -193,3 +198,113 @@
 ; memoize only referentially transparent functions
 (repeatedly 10 (partial rand-int 10))
 (repeatedly 10 (partial (memoize rand-int) 10))
+
+; collections and data structures
+(keys {Math/PI "~3.14"})
+
+(def v [1 2 3])
+(conj v 4)
+(conj v 4 5)
+(seq v)
+
+(def m {:a 1 :b 2})
+(conj m [:c 3])
+(conj m :c 3) ; IllegalArgumentException, arg must be a vector
+(seq m)
+
+(def s #{1 2 3})
+(conj s 4 5)
+(conj s 3)
+(seq s)
+
+(def lst '(1 2 3))
+(conj lst 0 -1)
+(seq lst)
+
+; seq also works on Strings, but not conj
+(seq "ABC")
+
+(into v [4 5])
+(into m [[:c 3] [:d 4]])
+(into #{1 2} [2 3 4 3 2 5 3])
+(into [1] m)
+
+; collection abstraction
+(conj [1] 2)
+(seq [1 2])
+(count '(1 2 3 4))
+(empty #{1 2})
+(= #{1 2} #{2 1})
+
+; empty
+(defn swap-pairs
+  [sequential]
+  (into (empty sequential)
+        (interleave
+         (take-nth 2 (drop 1 sequential))
+         (take-nth 2 sequential))))
+
+(swap-pairs [1 2 3 4 5 6])
+(swap-pairs {:a 1 :b 2 :c 3})
+
+(map (fn [[k v]] {k (inc v)}) {:a 1 :b 2})
+
+(defn map-map
+  [f m]
+  (into (empty m)
+        (for [[k v] m]
+          [k (f v)])))
+(map-map inc (hash-map :a 1 :b 2 :c 3))
+(map-map inc (sorted-map :a 1 :b 2 :c 3))
+
+;count
+(count [1 2 3])
+(count {:a 1 :b 2})
+(count #{1 2 3 4})
+(count '(1 2 3))
+(count "ABC") ; works on Strings too
+
+; sequences
+(seq "Clojure")
+(seq {:a 1 :b 5})
+(seq (java.util.ArrayList. (range 10)))
+(java.util.ArrayList. (range 10))
+(seq (into-array ["Clojure" "Programming"]))
+(seq [])
+(seq nil)
+
+(map str "Clojure")
+(set "Programming")
+
+(first "Clojure")
+(rest "Clojure")
+(next "Clojure")
+(rest [1 2 3 4])
+
+; rest vs next
+(rest [1])
+(next [1])
+(rest nil)
+(next nil)
+
+(defn rest-equals-next
+  "true for any x when it's a sequence or nil"
+  [x]
+  (= (next x)
+     (seq (rest x))))
+
+; sequences are not iterators
+(doseq [x (range 3)]
+  (println x))
+
+(let [r (range 3)
+      rst (rest r)]
+  (prn (map str rst))
+  (prn (map #(+ 100 %) r))
+  (prn (conj r -1) (conj rst 42)))
+
+; sequences are not lists
+(let [s (range 1e6)]
+  (time (count s))) ; must realize all values in s before counting
+(let [s (apply list (range 1e6))]
+  (time (count s))) ; lists track their own length, so it's just a property access
