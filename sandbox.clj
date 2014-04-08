@@ -461,3 +461,35 @@ kvlist
 (get #{1 2 3} 4)
 (get #{1 2 3} 4 "not-found")
 (disj #{1 2 3} 1 3)
+
+; sorted abstraction
+(def sm (sorted-map :z 5 :x 4 :y 3 :b 0 :a 1 :c 9))
+sm
+(subseq sm <= :c)
+(subseq sm > :b <= :y)
+(rsubseq sm > :b <= :y)
+(subseq sm > :b <= :y)
+
+(compare 2 2)
+(compare 2 3)
+(compare 3 2)
+(compare "cv" "abc")
+(compare 1e8 nil)
+(compare nil 1e8)
+(compare ["z" 2] ["b" 2])
+
+(sort < (repeatedly 10 #(rand-int 100)))
+(sort-by first > (map-indexed vector "Clojure"))
+
+((comparator <) 1 4)
+((comparator >) 1 4)
+((comparator >) 4 4)
+
+(sorted-map-by compare :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111)
+(apply sorted-map-by compare [:z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111])
+(sorted-map-by (comp - compare) :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111)
+
+(time (sorted-map-by (comp - compare) :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111))
+(time (into {} (->
+          (sorted-map-by compare :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111)
+          reverse)))
