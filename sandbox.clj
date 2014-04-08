@@ -493,3 +493,90 @@ sm
 (time (into {} (->
           (sorted-map-by compare :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111)
           reverse)))
+
+(defn magnitude
+  [x]
+  (-> x Math/log10 Math/floor))
+
+(defn compare-magnitude
+  [a b]
+  (println "a" (magnitude a) "b" (magnitude b))
+  (- (magnitude a) (magnitude b)))
+
+((comparator compare-magnitude) 10 10000)
+((comparator compare-magnitude) 100 10)
+((comparator compare-magnitude) 10 75)
+
+; collections and keys and HOFs
+(map :name [{:age 21 :name "David"}
+            {:gender :f :name "Sarah"}
+            {:name "Suzy" :location "NYC"}])
+
+(some #{1 2 3} [0 4 5 6 7])
+(some #{1 2 3} [0 1 4 5 6 7])
+
+(filter :age [{:age 21 :name "David"}
+              {:gender :f :name "Sarah"}
+              {:name "Suzy" :location "NYC"}])
+
+; beware, it doesn't mean what it reads "naturally"
+; (partial <= 25) returns true when the final param is >= 25
+(filter (comp (partial <= 25) :age) [{:age 21 :name "David"}
+                                     {:gender :f :name "Sarah" :age 25}
+                                     {:name "Suzy" :location "NYC" :age 34}])
+
+(filter (partial <= 25) [1 2 3 44])
+(<= 1 2)
+
+(remove (comp (partial <= 25) :age) [{:age 21 :name "David"}
+                                     {:gender :f :name "Sarah" :age 25}
+                                     {:name "Suzy" :location "NYC" :age 34}])
+
+(remove #{5 7} (cons false (range 10)))
+(remove #{5 7 false} (cons false (range 10)))
+(#{1 2 false} false)
+(remove (partial contains? #{5 7 false}) (cons false (range 10)))
+(contains? #{5 7 false} false)
+
+; lists
+()
+'(1 2 3)
+(1 2 3) ; ClassCastException
+'(1 2 (+ 1 2)) ; subexpressions not evaluated
+'(1 2 [1 2 3])
+(list 1 2 (+ 1 2))
+(list? 1)
+(list? '(1 2 3))
+(list? (seq [1 2 3])) ; false
+
+; vectors
+(vector 1 2 3)
+(vec '(1 2 3))
+(vector? [1 2])
+
+; vectors as tuples
+(defn euclidian-division
+  [x y]
+  [(quot x y) (rem x y)])
+
+(euclidian-division 42 8)
+((juxt quot rem) 42 8) ; juxt, OMG
+
+(let [[q r] (euclidian-division 53 7)]
+  (str "53/7 = " q " * 7 + " r))
+
+(def point-3d [42 26 -7])
+(def travel-legs [["LYS" "FRA"] ["FRA" "PHL"] ["PHL" "RDU"]])
+
+; sets
+#{1 2}
+#{1 2 2}
+
+(hash-set 1 2 3 4)
+(set [1 2 3 3 4 8 8 8])
+
+(apply str (remove (set "aeiouy") "vowels are useless"))
+(defn numeric? [s] (every? (set "0123456789") s))
+(numeric? "123")
+(numeric? "12b")
+
