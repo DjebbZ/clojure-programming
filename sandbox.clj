@@ -430,4 +430,34 @@ kvlist
   (format "found %s => %s" (key e) (val e))
   "not-found")
 
+{nil 1 nil 2}
 
+(nth [:a :b :c] 2)
+(get [:a :b :c] 2)
+(nth [:a :b :c] 3) ; IndexOutOfBoundsException
+(get [:a :b :c] 3) ; nil
+
+(get 42 0)
+(nth 42 0) ; UnsupportedOperationException
+
+; stack abstraction
+(conj '() 1)
+(conj '(2 1) 3)
+(peek '(3 2 1))
+(pop '(3 2 1))
+(pop '(2 1))
+(pop '(1))
+(pop '()) ; IllegalStateException
+
+(conj [] 1)
+(conj [1 2] 3)
+(peek [1 2 3])
+(pop [1 2 3])
+(pop [1])
+(pop []) ; IllegalStateException
+
+; set
+(get #{1 2 3} 1)
+(get #{1 2 3} 4)
+(get #{1 2 3} 4 "not-found")
+(disj #{1 2 3} 1 3)
