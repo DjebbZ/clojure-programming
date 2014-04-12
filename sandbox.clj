@@ -491,8 +491,8 @@ sm
 
 (time (sorted-map-by (comp - compare) :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111))
 (time (into {} (->
-          (sorted-map-by compare :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111)
-          reverse)))
+                 (sorted-map-by compare :z 5 :x 4 :y 3 :b 0 :a 1 :c 9 :z 111)
+                 reverse)))
 
 (defn magnitude
   [x]
@@ -580,3 +580,78 @@ sm
 (numeric? "123")
 (numeric? "12b")
 
+; maps
+{:a 1 :b 2}
+{:a 1 :a 2}
+(hash-map :a 1 :b 2)
+(apply hash-map [:a 1 :b 2])
+
+(keys m)
+(vals m)
+(map key m)
+(map val m)
+
+; maps as ad-hoc structs
+(def playlist
+  [{:title "Elephant", :artist "The White Stripes", :year 2003}
+   {:title "Helioself", :artist "Papas Fritas", :year 1997}
+   {:title "Stories from the City, Stories from the Sea", :artist "PJ Harvey", :year 2000}
+   {:title "Buildings and Grounds", :artist "Papas Fritas", :year 2000}
+   {:title "Zen Rodeo", :artist "Mardi Gras BB", :year 2002}])
+
+(map :title playlist)
+(defn summarize
+  [{:keys [title artist year]}]
+  (str title " / " artist " / " year))
+(map summarize playlist)
+
+; other usages of maps
+(group-by #(rem % 3) (range 10))
+(group-by :artist playlist)
+(group-by (juxt :artist :year) playlist)
+
+(into {} (for [[k v] (group-by :artist playlist)]
+           [k (map summarize v)]))
+
+
+(defn reduce-by
+  [key-fn f init coll]
+  (reduce (fn [summaries x]
+            (let [k (key-fn x)]
+              (assoc summaries k (f (summaries k init) x))))
+          {} coll))
+
+(def orders
+  [{:product "Clock", :customer "Wile Coyote", :qty 6, :total 300}
+   {:product "Dynamite", :customer "Wile Coyote", :qty 20, :total 5000}
+   {:product "Shotgun", :customer "Elmer Fudd", :qty 2, :total 800}
+   {:product "Shells", :customer "Elmer Fudd", :qty 4, :total 100}
+   {:product "Hole", :customer "Wile Coyote", :qty 1, :total 1000}
+   {:product "Anvil", :customer "Elmer Fudd", :qty 2, :total 300}
+   {:product "Anvil", :customer "Elmer Fudd", :qty 2, :total 300}
+   {:product "Anvil", :customer "Wile Coyote", :qty 6, :total 900}])
+
+(reduce-by :product #(+ %1 (:total %2)) 0 orders)
+(reduce-by :product #(conj %1 (:customer %2)) #{} orders)
+
+(reduce-by (juxt :customer :product) #(+ %1 (:total %2)) 0 orders)
+
+(defn reduce-by-in
+  [keys-fn f init coll]
+  (reduce (fn [summaries x]
+            (let [ks (keys-fn x)]
+              (assoc-in summaries ks (f (get-in summaries ks init) x))))
+          {} coll))
+
+(reduce-by-in (juxt :customer :product) #(+ %1 (:total %2)) 0 orders)
+(map (juxt :customer :product) orders)
+
+(def flat-breakup
+  (reduce-by (juxt :customer :product) #(+ %1 (:total %2)) 0 orders))
+
+(reduce #(apply assoc-in %1 %2) {} flat-breakup)
+(assoc-in {} ["Anvil" "Wile Coyote"] 900)
+
+(->> orders
+     (reduce-by (juxt :customer :product) #(+ %1 (:total %2)) 0)
+     (reduce #(apply assoc-in %1 %2) {}))
