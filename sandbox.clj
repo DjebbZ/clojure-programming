@@ -655,3 +655,66 @@ sm
 (->> orders
      (reduce-by (juxt :customer :product) #(+ %1 (:total %2)) 0)
      (reduce #(apply assoc-in %1 %2) {}))
+
+; transients
+
+(def x (transient []))
+(def y (conj! x 1))
+(count y)
+(count x)
+
+(into #{} (range 5))
+
+(defn naive-into
+  [coll source]
+  (reduce conj coll source))
+
+(= (into #{} (range 500))
+   (naive-into #{} (range 500)))
+
+(time (do (into #{} (range 1e6))
+          nil)) ; the nil only prevents the REPL to prints millions of numbers
+(time (do (naive-into #{} (range 1e6))
+          nil))
+
+(defn faster-into
+  [coll source]
+  (persistent! (reduce conj! (transient coll) source)))
+
+(time (do (faster-into #{} (range 1e6))
+          nil))
+
+(defn transient-capable?
+  "Returns true if a transient can be obtained for the given collection.
+  i.e. tests if `(transient coll)` will succeed."
+  [coll]
+  (instance? clojure.lang.IEditableCollection coll))
+
+(def v [1 2])
+(def tv (transient v))
+(conj v 3)
+(count tv)
+(persistent! tv)
+(get tv 0)
+
+(nth (transient [1 2]) 1)
+(get (transient {:a 1 :b 2}) :a)
+((transient {:a 1 :b 2}) :a) ; transient are functions too
+(:a (transient {:a 1 :b 2}))
+(find (transient {:a 1 :b 2}) :a) ; ClassCastException : not all functions API for transients
+
+(let [tm (transient {})]
+  (doseq [x (range 100)]
+    (assoc! tm x 0))
+  (persistent! tm)) ; {0 0, 1 0, 2 0, 3 0, 4 0, 5 0, 6 0, 7 0}
+; almost all of the values are lost, must the use the result of assoc! instead
+
+(let [t (transient {})]
+  @(future (get t :a))) ; IllegalAccessError, transient are mono-thread
+
+; transients don't compose
+(persistent! (transient [])) ; []
+(persistent! (transient [(transient [])])) ; TransientVector
+
+(= (transient [1 2]) (transient [1 2])) ; false
+
