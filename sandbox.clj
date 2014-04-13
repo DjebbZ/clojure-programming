@@ -718,3 +718,23 @@ sm
 
 (= (transient [1 2]) (transient [1 2])) ; false
 
+; metadata
+
+(def a ^{:created (System/currentTimeMillis)}
+  [1 2 3])
+(meta a)
+
+(meta ^:private ^:dynamic [1 2 3])
+
+(def b (with-meta a (assoc (meta a)
+               :modified (System/currentTimeMillis))))
+(meta b)
+
+(def b (vary-meta a assoc :modified (System/currentTimeMillis)))
+(meta b)
+
+(= a b)
+(= ^{:a 5} 'any-value
+   ^{:b 5} 'any-value)
+
+(meta (conj a 500))
