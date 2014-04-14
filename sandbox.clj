@@ -2,7 +2,7 @@
   (:import (java.util HashMap UUID Date Formatter ArrayList)
            (java.io StringWriter BufferedWriter File)
            (javax.swing JFrame JPanel)
-           (java.awt Graphics Graphics2D Dimension)))
+           (java.awt Graphics Graphics2D Dimension BasicStroke)))
 
 ; Evalute these forms
 
@@ -940,7 +940,7 @@ sm
                 (let [g (doto ^Graphics2D (.create g)
                           (.scale 10 10)
                           (.translate 1.5 1.5)
-                          (.setStroke (java.awt.BasicsStroke. 0.4)))]
+                          (.setStroke (BasicStroke. 0.4)))]
                   (.drawRect g -1 -1 w h)
                   (doseq [[[xa ya] [xb yb]] (map sort maze)]
                     (let [[xc yc] (if (= xa xb)
