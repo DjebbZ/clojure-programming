@@ -1,6 +1,8 @@
 (ns sandbox.clj
   (:import (java.util HashMap UUID Date Formatter ArrayList)
-           (java.io StringWriter BufferedWriter File)))
+           (java.io StringWriter BufferedWriter File)
+           (javax.swing JFrame JPanel)
+           (java.awt Graphics Graphics2D Dimension)))
 
 ; Evalute these forms
 
@@ -738,3 +740,216 @@ sm
    ^{:b 5} 'any-value)
 
 (meta (conj a 500))
+
+; game of life
+(defn empty-board
+  "Creates a rectangular empty board of the specified width and height"
+  [w h]
+  (vec (repeat w (vec (repeat h nil)))))
+
+(defn populate
+  "Turns :on each of the cells specified as [y, x] coordinates"
+  [board living-cells]
+  (reduce (fn [board coordinates]
+            (assoc-in board coordinates :on))
+          board
+          living-cells))
+
+(def glider (populate (empty-board 6 6) #{[2 0] [2 1] [2 2] [1 2] [0 1]}))
+
+(pprint glider)
+
+(defn neighbours
+  [[x y]]
+  (for [dx [-1 0 1] dy [-1 0 1] :when (not= 0 dx dy)]
+    [(+ dx x) (+ dy y)]))
+
+(defn count-neighbours
+  [board loc]
+  (count (filter #(get-in board %) (neighbours loc))))
+
+(defn indexed-step
+  "Yields the next state of the board, using indices to determine neighbours,
+  liveness, etc."
+  [board]
+  (let [w (count board)
+        h (count (first board))]
+    (loop [new-board board x 0 y 0]
+      (cond
+        (>= x w) new-board
+        (>= y h) (recur new-board (inc x) 0)
+        :else
+        (let [new-liveness
+              (case (count-neighbours board [x y])
+                2 (get-in board [x y])
+                3 :on
+                nil)]
+          (recur (assoc-in new-board [x y] new-liveness) x (inc y)))))))
+
+(-> (iterate indexed-step glider) (nth 8) pprint)
+
+(defn indexed-step2
+  "More functional implementation of indexed-step"
+  [board]
+  (let [w (count board)
+        h (count (first board))]
+    (reduce
+      (fn [new-board x]
+        (reduce
+          (fn [new-board y]
+            (let [new-liveness
+                  (case (count-neighbours board [x y])
+                    2 (get-in board [x y])
+                    3 :on
+                    nil)]
+              (assoc-in new-board [x y] new-liveness)))
+          new-board (range h)))
+      board (range w))))
+
+(defn indexed-step3
+  "indexed-step2 with nested reductions collapsed"
+  [board]
+  (let [w (count board)
+        h (count (first board))]
+    (reduce
+      (fn [new-board [x y]]
+        (let [new-liveness
+              (case (count-neighbours board [x y])
+                2 (get-in board [x y])
+                3 :on
+                nil)]
+          (assoc-in new-board [x y] new-liveness)))
+      board (for [x (range h) y (range w)] [x y]))))
+
+(partition 3 1 (range 5))
+
+(partition 3 1 (concat [nil] (range 5) [nil]))
+
+(defn window
+  "Returns a lazy sequence of 3-item windows centered around each item of coll,
+  padded as necessary with pad or nil"
+  ([coll] (window nil coll))
+  ([pad coll]
+   (partition 3 1 (concat [pad] coll [pad]))))
+
+(defn cell-block
+  "Creates a sequences of 3x3 windows from a triple of 3 sequences."
+  [[left mid right]]
+  (window (map vector left mid right)))
+
+(defn liveness
+  "Returns the liveness (nil or :on) of the center cell for the next step."
+  [block]
+  (let [[_ [_ center _] _] block]
+    (case (- (count (filter #{:on} (apply concat block)))
+             (if (= :on center) 1 0))
+      2 center
+      3 :on
+      nil)))
+
+(defn- step-row
+  "Yields the next state of the center row."
+  [rows-triple]
+  (vec (map liveness (cell-block rows-triple))))
+
+(defn index-free-step
+  "Yieds the next state of the board"
+  [board]
+  (vec (map step-row (window (repeat nil) board))))
+
+(= (nth (iterate indexed-step glider) 8)
+   (nth (iterate index-free-step glider) 8))
+
+; getting to the next level
+(defn step
+  "Yields the next state of the world"
+  [cells]
+  (set (for [[loc n] (frequencies (mapcat neighbours cells))
+             :when (or (= n 3) (and (= n 2) (cells loc)))]
+         loc)))
+
+(->> (iterate step #{[2 0] [2 1] [2 2] [1 2] [0 1]})
+     (drop 8)
+     first
+     (populate (empty-board 6 6))
+     pprint)
+
+(defn stepper
+  "Returns a step function for Life-like cell automata.
+  neightbours takes a location and return a sequential collection of location.
+  survive? and birth? are predicates on the number of living neighbours."
+  [neighbours birth? survive?]
+  (fn [cells]
+    (set (for [[loc n] (frequencies (mapcat neighbours cells))
+               :when (if (cells loc) (survive? n) (birth? n))]
+           loc))))
+
+(def step2 (stepper neighbours #{3} #{2 3}))
+
+(def living-cells #{[0 1][1 2][3 0][3 1][3 2]})
+(step2 living-cells)
+
+(= (nth (iterate step living-cells) 8)
+   (nth (iterate step2 living-cells) 8))
+
+; Life-like automaton H.B2/S34
+; hexagonal grid, birth of 2, survive when 3 or 4
+(defn hex-neighbours
+  [[x y]]
+  (for [dx [-1 0 1] dy (if (zero? dx) [-2 2] [-1 1])]
+    [(+ dx x) (+ dy y)]))
+(def hex-step (stepper hex-neighbours #{2} #{3 4}))
+
+; this configuration is an oscillator of period 4
+(hex-step #{[0 0] [1 1] [1 3] [0 4]})
+(hex-step *1)
+(hex-step *1)
+(hex-step *1)
+
+; maze generation
+(defn maze
+  "Returns a random maze carved out of walls;
+  walls is a set of 2-item sets #{a b} where a and b are locations.
+  The returned maze is a set of the remaining walls."
+  [walls]
+  (let [paths (reduce (fn [index [a b]]
+                        (merge-with into index {a [b] b [a]}))
+                      {} (map seq walls))
+        start-loc (rand-nth (keys paths))]
+    (loop [walls walls
+           unvisited (disj (set (keys paths)) start-loc)]
+      (if-let [loc (when-let [s (seq unvisited)] (rand-nth s))]
+        (let [walk (iterate (comp rand-nth paths) loc)
+              steps (zipmap (take-while unvisited walk) (next walk))]
+          (recur (reduce disj walls (map set steps))
+                 (reduce disj unvisited (keys steps))))
+        walls))))
+
+(defn grid
+  [w h]
+  (set (concat
+         (for [i (range (dec w)) j (range h)] #{[i j] [(inc i) j]})
+         (for [i (range w) j (range (dec h))] #{[i j] [i (inc j)]}))))
+
+(defn draw
+  [w h maze]
+  (doto (JFrame. "Maze")
+    (.setContentPane
+      (doto (proxy [JPanel] []
+              (paintComponent [^Graphics g]
+                (let [g (doto ^Graphics2D (.create g)
+                          (.scale 10 10)
+                          (.translate 1.5 1.5)
+                          (.setStroke (java.awt.BasicsStroke. 0.4)))]
+                  (.drawRect g -1 -1 w h)
+                  (doseq [[[xa ya] [xb yb]] (map sort maze)]
+                    (let [[xc yc] (if (= xa xb)
+                                    [(dec xa) ya]
+                                    [xa (dec ya)])]
+                      (.drawLine g xa ya xc yc))))))
+        (.setPreferredSize (Dimension.
+                             (* 10 (inc w)) (* 10 (inc h))))))
+    .pack
+    (.setVisible true)))
+
+(draw 40 40 (maze (grid 40 40)))
