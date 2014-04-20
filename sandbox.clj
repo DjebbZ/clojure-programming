@@ -2,7 +2,8 @@
   (:import (java.util HashMap UUID Date Formatter ArrayList)
            (java.io StringWriter BufferedWriter File)
            (javax.swing JFrame JPanel)
-           (java.awt Graphics Graphics2D Dimension BasicStroke)))
+           (java.awt Graphics Graphics2D Dimension BasicStroke))
+  (:require [clojure.zip :as z]))
 
 ; Evalute these forms
 
@@ -432,7 +433,7 @@ kvlist
   (format "found %s => %s" (key e) (val e))
   "not-found")
 
-{nil 1 nil 2}
+;{nil 1 nil 2}
 
 (nth [:a :b :c] 2)
 (get [:a :b :c] 2)
@@ -572,7 +573,7 @@ sm
 
 ; sets
 #{1 2}
-#{1 2 2}
+; #{1 2 2} IllegalArgumentException Duplicate key 2
 
 (hash-set 1 2 3 4)
 (set [1 2 3 3 4 8 8 8])
@@ -584,7 +585,7 @@ sm
 
 ; maps
 {:a 1 :b 2}
-{:a 1 :a 2}
+;; {:a 1 :a 2}
 (hash-map :a 1 :b 2)
 (apply hash-map [:a 1 :b 2])
 
@@ -722,8 +723,9 @@ sm
 
 ; metadata
 
+
 (def a ^{:created (System/currentTimeMillis)}
-  [1 2 3])
+   [1 2 3])
 (meta a)
 
 (meta ^:private ^:dynamic [1 2 3])
@@ -933,7 +935,7 @@ sm
 
 (defn draw
   [w h maze]
-  (doto (JFrame. "Maze")
+  (doto (JFrame "Maze")
     (.setContentPane
       (doto (proxy [JPanel] []
               (paintComponent [^Graphics g]
@@ -947,9 +949,53 @@ sm
                                     [(dec xa) ya]
                                     [xa (dec ya)])]
                       (.drawLine g xa ya xc yc))))))
-        (.setPreferredSize (Dimension.
+        (.setPreferredSize (Dimension
                              (* 10 (inc w)) (* 10 (inc h))))))
     .pack
     (.setVisible true)))
 
 (draw 40 40 (maze (grid 40 40)))
+
+; zippers
+
+(require '[clojure.zip :as z])
+
+(def v [[1 2 [3 4]] [5 6]])
+(-> v z/vector-zip z/node)
+(-> v z/vector-zip z/down z/node)
+(-> v z/vector-zip z/down z/right z/node)
+
+(-> v z/vector-zip z/down z/right (z/replace 56) z/node)
+(-> v z/vector-zip z/down z/right (z/replace 56) z/root)
+(-> v z/vector-zip z/down z/right z/remove z/node)
+(-> v z/vector-zip z/down z/right z/remove z/root)
+(-> v z/vector-zip z/down z/down z/right (z/edit * 42) z/root)
+
+(def w [1 [2 5] [3 4]])
+(-> w z/vector-zip z/down z/right z/right z/remove z/node)
+(-> w z/vector-zip z/down z/right z/children)
+(-> w z/vector-zip z/down z/rights)
+
+; custom zippers
+(defn html-zip [root]
+  (z/zipper
+    vector?
+    (fn [[tagname & xs]]
+      (if (map? (first xs)) (next xs) xs))
+    (fn [[tagname & xs] children]
+      (into (if (map? (first xs)) [tagname (first xs)] [tagname])
+            children))
+    root))
+
+(defn wrap
+  "Wraps the current node in the specified tag and attributes"
+  ([loc tag]
+   (z/edit loc #(vector tag %)))
+  ([loc tag attrs]
+   (z/edit loc #(vector tag attrs %))))
+
+(def h [:body [:h1 "Clojure"]
+              [:p "What a wonderful language!"]])
+
+(-> h html-zip z/down z/right z/down (wrap :b) z/root)
+
