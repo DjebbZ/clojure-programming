@@ -1095,3 +1095,77 @@ d
            (pmap (fn [chunk] (doall (map phone-numbers chunk))))
            (apply concat)
            dorun))
+
+; state and identity
+(defmacro futures
+  [n & exprs]
+  (vec (for [_ (range n)
+             expr exprs]
+         `(future ~expr))))
+
+(defmacro wait-futures
+  [& args]
+  `(doseq [f# (futures ~@args)]
+     @f#))
+
+(def sarah (atom {:name "Sarah" :age 25 :wears-glasses? false}))
+(swap! sarah update-in [:age] + 3)
+(update-in @sarah [:age] + 3)
+@sarah
+
+(swap! sarah (comp #(update-in % [:age] inc)
+                   #(assoc % :wears-glasses? true)))
+@sarah
+
+(def xs (atom #{1 2 3}))
+(wait-futures 1 (swap! xs (fn [v]
+                            (Thread/sleep 250)
+                            (println "trying 4")
+                            (conj v 4)))
+                (swap! xs (fn [v]
+                            (Thread/sleep 500)
+                            (println "trying 5")
+                            (conj v 5))))
+@xs
+
+(compare-and-set! xs :wrong "new value")
+(compare-and-set! xs @xs "new value")
+
+(reset! xs :y)
+@xs
+
+; notifications and constraints
+
+; watches
+(defn echo-watch
+  [key identity old new]
+  (println key old "=>" new))
+
+(def sarah (atom {:name "Sarah" :age 25}))
+
+(add-watch sarah :echo echo-watch)
+(swap! sarah update-in [:age] inc)
+
+(add-watch sarah :echo2 echo-watch)
+(swap! sarah update-in [:age] inc)
+
+(remove-watch sarah :echo2)
+(swap! sarah update-in [:age] inc)
+
+(reset! sarah @sarah)
+
+(def history (atom ()))
+
+(defn log->list
+  [dest-atom key source old new]
+  (when (not= old new)
+    (swap! dest-atom conj new)))
+
+(def sarah (atom {:name "Sarah" :age 25}))
+(add-watch sarah :record (partial log->list history))
+
+(swap! sarah update-in [:age] inc)
+(swap! sarah update-in [:age] inc)
+(swap! sarah assoc :wears-glasses? true)
+(swap! sarah update-in [:age] inc)
+(clojure.pprint/pprint @history)
