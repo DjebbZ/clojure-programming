@@ -2,7 +2,8 @@
   (:import (java.util HashMap UUID Date Formatter ArrayList)
            (java.io StringWriter BufferedWriter File)
            (javax.swing JFrame JPanel)
-           (java.awt Graphics Graphics2D Dimension BasicStroke))
+           (java.awt Graphics Graphics2D Dimension BasicStroke)
+           (java.net URL))
   (:require [clojure.zip :as z]))
 
 ; Evalute these forms
@@ -999,3 +1000,98 @@ sm
 
 (-> h html-zip z/down z/right z/down (wrap :b) z/root)
 
+; Delays
+
+(def d (delay (println "Running...")
+              :done!))
+
+(deref d)
+@d
+
+(defn gh-user
+  [name]
+  (let [url (str "https://api.github.com/users/" name)]
+    (delay (slurp url))))
+
+(def d (gh-user "DjebbZ"))
+d
+
+(realized? d)
+@d
+(realized? d)
+
+(def long-calculation (future (apply + (range 1e8))))
+@long-calculation
+@(future (Thread/sleep 5000) :done!)
+
+(deref (future (Thread/sleep 5000) :done!)
+       1000
+       :impatient!)
+
+(defn get-document
+  []
+  {:url "http://www.mozilla.org/about/manifesto.en.html"
+   :title "The Mozilla manifesto"
+   :content (future (slurp "http://www.mozilla.org/about/manifesto.en.html"))})
+
+(get-document)
+(:content (get-document))
+(deref (:content (get-document)))
+
+; promises
+(def p (promise))
+(realized? p)
+(deliver p 42)
+(realized? p)
+
+(def a (promise))
+(def b (promise))
+(def c (promise))
+
+(future
+  (deliver c (+ @a @b))
+  (println "Delivery complete!"))
+
+(deliver a 15)
+(deliver b 15)
+@c
+
+(defn call-service
+  [arg1 arg2 callback-fn]
+  ;.. do stuff
+  (future (callback-fn (+ arg1 arg2) (- arg1 arg2))))
+
+(defn sync-fn
+  [async-fn]
+  (fn [& args]
+    (let [result (promise)]
+      (apply async-fn (conj (vec args) #(deliver result %&)))
+      @result)))
+
+((sync-fn call-service) 8 7)
+
+; parallelism on the cheap
+(defn phone-numbers
+  [string]
+  (re-seq #"(\d{3})[\.-]?(\d{3})[\.-]?(\d{4})" string))
+(phone-numbers "Snumil: 617-555-3909")
+
+(def files (repeat 100
+                   (apply str
+                          (concat (repeat 1000000 \space)
+                                  "Sunil: 617.555.2397, Betty: 508.555.2218"))))
+(time (dorun (map phone-numbers files)))
+(time (dorun (pmap phone-numbers files)))
+
+(def more-files (repeat 100000
+                        (apply str
+                               (concat (repeat 1000 \space)
+                                       "Sunil: 617.555.2397, Betty: 508.555.2218"))))
+(time (dorun (map phone-numbers more-files)))
+(time (dorun (pmap phone-numbers more-files)))
+
+(time (->> files
+           (partition-all 250)
+           (pmap (fn [chunk] (doall (map phone-numbers chunk))))
+           (apply concat)
+           dorun))
