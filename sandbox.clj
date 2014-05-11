@@ -1169,3 +1169,497 @@ d
 (swap! sarah assoc :wears-glasses? true)
 (swap! sarah update-in [:age] inc)
 (clojure.pprint/pprint @history)
+
+;; validators
+
+(def n (atom 1 :validator pos?))
+(swap! n + 500)
+;; (swap! n - 1000) ; IllegalStateException: Invalid reference state
+
+(def sarah (atom {:name "Sarah" :age 25}))
+(set-validator! sarah :age)
+;; (swap! sarah dissoc :age) ; IllegalStateException: Invalid reference state
+
+(set-validator! sarah #(or (:age %)
+                           (throw (IllegalStateException. "People must have ':age's!"))))
+(swap! sarah dissoc :age)
+(:age @sarah)
+
+;; refs
+(defn character
+  [name & {:as opts}]
+  (ref (merge {:name name :items #{} :health 500}
+              opts)))
+
+(def smaug (character "Smaug" :health 500 :strength 400 :items (set (range 50))))
+(def bilbo (character "Bilbo" :health 100 :strength 100))
+(def gandalf (character "Gandalf" :health 75 :mana 750))
+
+
+(defn loot
+  [from to]
+  (dosync
+   (when-let [item (first (:items @from))]
+     (alter to update-in [:items] conj item)
+     (alter from update-in [:items] disj item))))
+
+(wait-futures 1
+              (while (loot smaug bilbo))
+              (while (loot smaug gandalf)))
+
+@smaug
+@bilbo
+@gandalf
+
+(map (comp count :items deref) [bilbo gandalf])
+(filter (:items @bilbo) (:items @gandalf))
+
+(def x (ref 0))
+
+(time (wait-futures 5
+                    (dotimes [_ 1000]
+                      (dosync (alter x + (apply + (range 1000)))))
+                    (dotimes [_ 1000]
+                      (dosync (alter x - (apply + (range 1000)))))))
+
+(time (wait-futures 5
+                    (dotimes [_ 1000]
+                      (dosync (commute x + (apply + (range 1000)))))
+                    (dotimes [_ 1000]
+                      (dosync (commute x - (apply + (range 1000)))))))
+
+(defn flawed-loot
+  [from to]
+  (dosync
+   (when-let [item (first (:items @from))]
+     (commute to update-in [:items] conj item)
+     (commute from update-in [:items] disj item))))
+
+(def smaug (character "Smaug" :health 500 :strength 400 :items (set (range 50))))
+(def bilbo (character "Bilbo" :health 100 :strength 100))
+(def gandalf (character "Gandalf" :health 75 :mana 750))
+
+(wait-futures 1
+              (while (flawed-loot smaug bilbo))
+              (while (flawed-loot smaug gandalf)))
+
+(map (comp count :items deref) [bilbo gandalf])
+(filter (:items @bilbo) (:items @gandalf))
+
+(defn fixed-loot
+  [from to]
+  (dosync
+   (when-let [item (first (:items @from))]
+     (commute to update-in [:items] conj item)
+     (alter from update-in [:items] disj item))))
+
+(def smaug (character "Smaug" :health 500 :strength 400 :items (set (range 50))))
+(def bilbo (character "Bilbo" :health 100 :strength 100))
+(def gandalf (character "Gandalf" :health 75 :mana 750))
+
+(wait-futures 1
+              (while (fixed-loot smaug bilbo))
+              (while (fixed-loot smaug gandalf)))
+
+(map (comp count :items deref) [bilbo gandalf])
+(filter (:items @bilbo) (:items @gandalf))
+
+(defn attack
+  [aggressor target]
+  (dosync
+   (let [damage (* (rand 0.1) (:strength @aggressor))]
+     (commute target update-in [:health] #(max 0 (- % damage))))))
+
+(defn heal
+  [healer target]
+  (dosync
+   (let [aid (* (rand 0.1) (:mana @healer))]
+     (when (pos? aid)
+       (commute healer update-in [:mana] - (max 5 (/ aid 5)))
+       (commute target update-in [:health] + aid)))))
+
+(def alive? (comp pos? :health))
+
+(defn play
+  [character action other]
+  (while (and (alive? @character)
+              (alive? @other)
+              (action character other))
+    (Thread/sleep (rand-int 50))))
+
+(wait-futures 1
+              (play bilbo attack smaug)
+              (play smaug attack bilbo))
+
+(map (comp :health deref) [smaug bilbo])
+
+(dosync
+ (commute smaug assoc :health 500)
+ (commute bilbo assoc :health 100))
+
+(wait-futures 1
+              (play bilbo attack smaug)
+              (play smaug attack bilbo)
+              (play gandalf heal bilbo))
+
+(map (comp #(select-keys % [:name :health :mana]) deref) [smaug bilbo gandalf])
+
+; Clobbering ref state with ref-set
+
+(dosync (ref-set bilbo {:name "Bilbo"}))
+(dosync (alter bilbo (constantly {:name "Bilbo"})))
+
+; Enforcing local consistency by using validators
+
+(defn- enforce-max-health
+  [{:keys [name health]}]
+  (fn [character-data]
+    (or (<= (:health character-data) health)
+        (throw (IllegalStateException. (str name " is already at max health!"))))))
+
+(defn character
+  [name & {:as opts}]
+  (let [cdata (merge {:name name :items #{} :health 500}
+                     opts)
+        cdata (assoc cdata :max-health (:health cdata))
+        validators (list* (enforce-max-health {:name name :health (:health cdata)})
+                          (:validators cdata))]
+    (ref (dissoc cdata :validators)
+         :validator #(every? (fn [v] (v %)) validators))))
+
+(def bilbo (character "Bilbo" :health 100 :strength 100))
+
+;; (heal gandalf bilbo) ; IllegalStateException: Bilbo is already at max health
+
+(dosync (alter bilbo assoc-in [:health] 95))
+(heal gandalf bilbo) ; IllegalStateException.
+
+(defn heal
+  [healer target]
+  (dosync
+   (let [aid (min (* (rand 0.1) (:mana @healer))
+                  (- (:max-health @target) (:health @target)))]
+     (when (pos? aid)
+       (commute healer update-in [:mana] - (max 5 (/ aid 5)))
+       (alter target update-in [:health] + aid)))))
+
+(dosync (alter bilbo assoc-in [:health] 95))
+(heal gandalf bilbo)
+(heal gandalf bilbo)
+
+; The sharp corners of STM
+; Side effecting functions strictly verboten
+
+(defn unsafe
+  []
+  (io! (println "writing to databse...")))
+(dosync (unsafe)) ; IllegalStateException: I/O in transaction
+
+(def x (ref (java.util.ArrayList.)))
+(wait-futures 2 (dosync (dotimes [v 5]
+                          (Thread/sleep (rand-int 50))
+                          alter x #(doto % (.add v)))))
+@x
+
+; Live lock
+(def x (ref 0))
+(dosync
+ @(future (dosync (ref-set x 0)))
+ (ref-set x 1))
+
+(ref-max-history (ref "abc" :min-history 3 :max-history 30))
+
+(def a (ref 0))
+(future (dotimes [_ 500] (dosync (Thread/sleep 200) (alter inc a))))
+@(future (dosync (Thread/sleep 1000) @a))
+(ref-history-count a)
+
+(def a (ref 0 :max-history 100))
+(future (dotimes [_ 500] (dosync (Thread/sleep 20) (alter a inc))))
+@(future (dosync (Thread/sleep 1000) @a))
+(ref-history-count a)
+
+(def a (ref 0 :min-history 50 :max-history 100))
+(future (dotimes [_ 500] (dosync (Thread/sleep 20) (alter a inc))))
+@(future (dosync (Thread/sleep 1000) @a))
+(ref-history-count a)
+
+; Write skew
+
+(def daylight (ref 1))
+
+(defn attack
+  [aggressor target]
+  (dosync
+   (let [damage (* (rand 0.1) (:strength @aggressor) @daylight)]
+     (commute target update-in [:health] #(max 0 (- % damage))))))
+
+(wait-futures 1
+              (play bilbo attack smaug)
+              (play smaug attack bilbo))
+
+; Vars
+
+map
+#'map ; <=> (var map)
+@#'map
+
+; Private vars
+
+(def ^:private everything 42)
+(def ^{:private true} everything 42) ; both equivalent
+
+(ns other-namespace)
+
+(refer 'sandbox.clj)
+everything ; RuntimeException : unable to resolve symbol everything in this context
+@#'sandbox.clj/everything
+
+(def a
+  "A sample value"
+  5)
+
+(defn b
+  "A simple calculation using `a`"
+  [c]
+  (+ a c))
+
+(clojure.repl/doc a) ; prints doc in console
+(clojure.repl/doc b)
+
+(meta #'a)
+
+(def ^{:doc "A sample value."} a 5)
+(clojure.repl/doc a)
+(alter-meta! #'a assoc :doc "A dummy value")
+(clojure.repl/doc a)
+
+; Constants
+
+(def max-value 255)
+(defn valid-value?
+  [v]
+  (<= v max-value))
+(valid-value? 218)
+(valid-value? 298)
+(def max-value 500)
+(valid-value? 299)
+
+(def ^:const max-value 255)
+(defn valid-value?
+  [v]
+  (<= v max-value))
+(def max-value 500)
+(valid-value? 299)
+
+; Dynamic Scope
+
+(let [a 1
+      b 2]
+  (println (+ a b))
+  (let [b 3
+        + -]
+    (println (+ a b))))
+
+(def ^:dynamic *max-value* 255)
+(defn valid-value? [v] (<= v *max-value*))
+(binding [*max-value* 500]
+  (valid-value? 299))
+(valid-value? 299)
+
+(binding [*max-value* 500]
+  (println (valid-value? 299))
+  (doto (Thread. #(println "in other thread:" (valid-value? 299)))
+    .start
+    .join))
+
+(def ^:dynamic *var* :root)
+(defn get-*var* [] *var*)
+(binding [*var* :a]
+  (binding [*var* :b]
+    (binding [*var* :c]
+      (get-*var*))))
+
+(defn http-get
+  [url-string]
+  (let [conn (-> url-string java.net.URL. .openConnection)
+        response-code (.getResponseCode conn)]
+    (if (== 404 response-code)
+      [response-code]
+      [response-code (-> conn .getInputStream slurp)])))
+
+(http-get "http://google.com/bad-url")
+(http-get "http://google.com")
+
+(def ^:dynamic *response-code* nil)
+(defn http-get
+  [url-string]
+  (let [conn (-> url-string java.net.URL. .openConnection)
+        response-code (.getResponseCode conn)]
+    (when (thread-bound? #'*response-code*)
+      (set! *response-code* response-code))
+    (when (not= 404 response-code) (-> conn .getInputStream slurp))))
+
+(http-get "http://google.com")
+*response-code*
+
+(binding [*response-code* nil]
+  (let [content (http-get "http://google.com/bad-url")]
+    (println "Response code was:" *response-code*)
+    ; do stuff
+    ))
+
+*response-code*
+
+; Dynamic scope propagates through Clojure-native concurrency forms
+
+(binding [*max-value* 500]
+  (println (valid-value? 299))
+  @(future (valid-value? 299)))
+
+(binding [*max-value* 500]
+  (map valid-value? [299]))
+
+(map #(binding [*max-value* 500]
+        (valid-value? %))
+     [299])
+
+; Vars are not variables
+
+(defn never-do-this []
+  (def x 123)
+  (def y 456)
+  (def x (+ x y))
+  x)
+x
+(never-do-this)
+x
+
+(def x 80)
+(defn never-do-this []
+  (def x 123)
+  (def y 456)
+  (def x (+ x y))
+  x)
+x
+(never-do-this)
+x
+
+; Changing a var's root binding
+
+(def x 0)
+(alter-var-root #'x inc)
+x
+
+; Forward declarations
+
+(def j)
+j
+
+(declare complex-helper-fn other-helper-fn)
+
+(defn public-api-function
+  [arg1 arg2]
+  ; do stuff
+  (other-helper-fn arg1 arg2 (complex-helper-fn arg1 arg2)))
+
+(defn- complex-helper-fn
+  [arg1 arg2]
+  ; do stuff
+  )
+
+(defn- other-helper-fn
+  [arg1 arg2]
+  ; do stuff
+  )
+
+; Agents
+
+(def a (agent 500))
+(send a range 502)
+@a
+
+(def a (agent 0))
+(send a inc)
+
+(def a (agent 4000))
+(def b (agent 11000))
+
+(send-off a #(Thread/sleep %))
+(send-off b #(Thread/sleep %))
+@a
+
+(await a b)
+@a
+@b
+
+(def a (agent nil))
+(send a (fn [_] (throw (Exception. "something is wrong"))))
+a
+(send a identity)
+
+; Dealing with erros in agent actions
+
+(restart-agent a 42)
+(send a inc)
+(reduce send a (for [x (range 3)]
+                 (fn [_] (throw (Exception. (str ("error #" x)))))))
+(agent-error a)
+(restart-agent a 42)
+(agent-error a)
+(restart-agent a 42 :clear-actions true)
+(agent-error a)
+
+; Agents error handlers and modes
+
+(def a (agent nil :error-mode :continue))
+(send a (fn [_] (throw (Exception. "something is wrong"))))
+(send a identity)
+
+(def a (agent nil
+              :error-mode :continue
+              :error-handler (fn [the-agent exception]
+                               (.println System/out (.getMessge exception)))))
+(send a (fn [_] (throw (Exception. "something is wrong"))))
+(send a identity)
+
+(set-error-handler! a (fn [the-agent exception]
+                        (when (= "FATAL" (.getMessage exception))
+                          (set-error-mode! the-agent :fail))))
+
+(send a (fn [_] (throw (Exception. "FATAL"))))
+(send a identity)
+
+; Persisting reference states with an agent-base write-behind log
+
+(require '[clojure.java.io :as io])
+
+(def console (agent *out*))
+(def character-log (agent (io/writer "character-states.log" :append true)))
+
+(defn write
+  [^java.io.Writer w & content]
+  (doseq [x (interpose " " content)]
+    (.write w (str x)))
+  (doto w
+    (.write "\n")
+    .flush))
+
+(defn log-reference
+  [reference & writer-agents]
+  (add-watch reference :log
+             (fn [_ reference old new]
+               (doseq [writer-agent writer-agents]
+                 (send-off writer-agent write new)))))
+
+(def smaug (character "Smaug" :health 500 :strength 400))
+(def bilbo (character "Bilbo" :health 100 :health 100))
+(def gandalf (character "Gandalf" :health 75 :mana 1000))
+
+(log-reference bilbo console character-log)
+(log-reference smaug console character-log)
+
+(wait-futures 1
+              (play bilbo attack smaug)
+              (play smaug attack bilbo)
+              (play gandalf heal bilbo))
