@@ -1635,7 +1635,8 @@ a
 (require '[clojure.java.io :as io])
 
 (def console (agent *out*))
-(def character-log (agent (io/writer "character-states.log" :append true)))
+(def file-path "/Users/khalid_jebbari/Documents/Clojure/clojure-programming/")
+(def character-log (agent (io/writer (str file-path "character-states.log") :append true)))
 
 (defn write
   [^java.io.Writer w & content]
@@ -1652,14 +1653,154 @@ a
                (doseq [writer-agent writer-agents]
                  (send-off writer-agent write new)))))
 
-(def smaug (character "Smaug" :health 500 :strength 400))
-(def bilbo (character "Bilbo" :health 100 :health 100))
-(def gandalf (character "Gandalf" :health 75 :mana 1000))
+(defmacro futures
+  [n & exprs]
+  (vec (for [_ (range n)
+             expr exprs]
+         `(future ~expr))))
 
-(log-reference bilbo console character-log)
-(log-reference smaug console character-log)
+(defmacro wait-futures
+  [& args]
+  `(doseq [f# (futures ~@args)]
+     @f#))
 
-(wait-futures 1
-              (play bilbo attack smaug)
-              (play smaug attack bilbo)
-              (play gandalf heal bilbo))
+(defn- enforce-max-health
+  [{:keys [name health]}]
+  (fn [character-data]
+    (or (<= (:health character-data) health)
+        (throw (IllegalStateException. (str name " is already at max health!"))))))
+
+(defn character
+  [name & {:as opts}]
+  (let [cdata (merge {:name name :items #{} :health 500}
+                     opts)
+        cdata (assoc cdata :max-health (:health cdata))
+        validators (list* (enforce-max-health {:name name :health (:health cdata)})
+                          (:validators cdata))]
+    (ref (dissoc cdata :validators)
+         :validator #(every? (fn [v] (v %)) validators))))
+
+(def alive? (comp pos? :health))
+
+(defn heal
+  [healer target]
+  (dosync
+   (let [aid (min (* (rand 0.1) (:mana @healer))
+                  (- (:max-health @target) (:health @target)))]
+     (when (pos? aid)
+       (send-off console write
+                 (:name @healer) "heals" (:name @target) "for" aid)
+       (commute healer update-in [:mana] - (max 5 (/ aid 5)))
+       (alter target update-in [:health] + aid)))))
+
+(defn play
+  [character action other]
+  (while (and (alive? @character)
+              (alive? @other)
+              (action character other))
+    (Thread/sleep (rand-int 50))))
+
+(defn attack
+  [aggressor target]
+  (dosync
+   (let [damage (* (rand 0.1) (:strength @aggressor))]
+     (send-off console write
+               (:name @aggressor) "hits" (:name @target) "for" damage)
+     (commute target update-in [:health] #(max 0 (- % damage))))))
+
+(defn- -log-demo
+  []
+  (def smaug (character "Smaug" :health 500 :strength 400))
+  (def bilbo (character "Bilbo" :health 100 :strength 100))
+  (def gandalf (character "Gandalf" :health 75 :mana 1000))
+
+  (log-reference bilbo console character-log)
+  (log-reference smaug console character-log)
+
+  (wait-futures 1
+                (play bilbo attack smaug)
+                (play smaug attack bilbo)
+                (play gandalf heal bilbo)))
+(-log-demo)
+
+;; Macros
+
+; What Can Macros Do that Functions Cannot ?
+
+(defmacro foreach [[sym coll] & body]
+  `(loop [coll# ~coll]
+     (when-let [[~sym & xs#] (seq coll#)]
+       ~@body
+       (recur xs#))))
+(foreach [x [1 2 3]]
+ (println x))
+
+; Macros Versus Ruby
+; Or Phyton, JavaScript, PHP, Perl, or really any language the allows you to evaluate a string containing code
+
+; Ruby code below
+;; x = 123
+;; code = "puts VAR"
+;; code.sub!(/VAR/, 'x')
+;; eval code
+
+;; code = <<END
+;;   def foo
+;;     puts "foo! # oops, forgot a closing quote
+;;   end
+;; END
+
+;; if (rand(2) == 0)
+;;   eval code
+;; end
+
+(defmacro foo []
+  `(if (= 0 (rand-int 2))
+     (println "foo!"))) ; clojure.lang.ExceptionInfo: EOF while reading string
+
+; Ruby code below
+
+;; def print_sym(x)
+;;   code = "p(" + x + ".to_sym)"
+;; end
+;; eval print_sym "\"foo\""
+
+(defmacro print-keyword [x]
+  `(println (keyword ~x)))
+(print-keyword "foo")
+
+; Write Your First Macro
+
+(require '(clojure [string :as clj-str]
+                   [walk :as walk]))
+
+(defmacro reverse-it
+  [form]
+  (walk/postwalk #(if (symbol? %)
+                    (symbol (clj-str/reverse (name %)))
+                    %)
+                 form))
+
+(reverse-it
+ (qesod [gra (egnar 5)]
+   (nltnirp (cni gra))))
+
+(macroexpand-1 '(reverse-it
+                 (qesod [gra (egnar 5)]
+                   (nltnirp (cni gra)))))
+
+; Debugging Macros
+
+(defn oops [arg] (frobnicate arg)) ; RuntimeException: unable to locate symbol frobnicate
+(defmacro oops [arg] `(frobnicate arg)) ; no exception
+(oops 123) ; RuntimeException: No such var frobnicate
+
+; Macroexpansion
+
+(macroexpand-1 '(reverse-it
+                 (qesod [gra (egnar 5)]
+                   (nltnirp (cni gra)))))
+
+(clojure.pprint/pprint (macroexpand '(reverse-it
+                 (qesod [gra (egnar 5)]
+                   (nltnirp (cni gra))))))
